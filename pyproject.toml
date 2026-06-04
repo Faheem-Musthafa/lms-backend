@@ -1,0 +1,65 @@
+[project]
+name = "lms-backend"
+version = "0.1.0"
+description = "Modular multi-tenant LMS backend (modular monolith, DDD, API-first)"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    "sqlalchemy[asyncio]>=2.0.36",
+    "alembic>=1.14.0",
+    "asyncpg>=0.30.0",
+    "psycopg[binary]>=3.2.0",
+    "pydantic>=2.10.0",
+    "pydantic-settings>=2.6.0",
+    "pyjwt>=2.10.0",
+    "pwdlib[argon2]>=0.2.1",
+    "redis>=5.2.0",
+    "python-multipart>=0.0.12",
+    "email-validator>=2.2.0",
+    "structlog>=24.4.0",
+]
+
+[project.optional-dependencies]
+storage = ["boto3>=1.35.0"]
+jobs = ["dramatiq[redis]>=1.17.0"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.24.0",
+    "httpx>=0.28.0",
+    "aiosqlite>=0.20.0",
+    "ruff>=0.8.0",
+    "mypy>=1.13.0",
+    "faker>=33.0.0",
+]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+addopts = "-ra -q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "C4", "SIM", "TID"]
+ignore = [
+    "B008",   # FastAPI Depends in defaults
+    "UP042",  # keep explicit (str, Enum) over StrEnum
+    "UP046",  # keep Generic[T] over PEP-695 type params
+    "UP047",
+]
+
+[tool.mypy]
+python_version = "3.13"
+plugins = ["pydantic.mypy"]
+warn_unused_ignores = true
+disallow_untyped_defs = false

@@ -1,0 +1,142 @@
+"""Admin endpoints — mounted at /api/v1/admin (ADMIN module + RBAC gated)."""
+
+from __future__ import annotations
+
+import uuid
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, status
+
+from app.modules.admin.schemas import (
+    AdminUserCreate,
+    AdminUserUpdate,
+    ModuleToggle,
+    ReportOut,
+    TenantCreate,
+    TenantModuleOut,
+    TenantOut,
+)
+from app.modules.admin.service import (
+    AdminUserService,
+    ReportService,
+    TenantAdminService,
+)
+from app.modules.auth.dependencies import CurrentUser, DbSession, require_permission
+from app.modules.auth.schemas import UserOut
+from app.modules.courses.schemas import CourseCreate, CourseOut, CourseUpdate
+from app.modules.courses.service import CourseService
+from app.shared.schemas import Message, Page, PageParams
+
+router = APIRouter(prefix="/admin", tags=["Admin"])
+
+
+# ── Course management ─────────────────────────────────────────────────────────
+@router.post(
+    "/courses",
+    response_model=CourseOut,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[require_permission("course:create")],
+)
+async def create_course(data: CourseCreate, session: DbSession, _: CurrentUser) -> CourseOut:
+    course = await CourseService(session).create_course(data)
+    return CourseOut.model_validate(course)
+
+
+@router.put(
+    "/courses/{course_id}",
+    response_model=CourseOut,
+    dependencies=[require_permission("course:update")],
+)
+async def update_course(
+    course_id: uuid.UUID, data: CourseUpdate, session: DbSession, _: CurrentUser
+) -> CourseOut:
+    course = await CourseService(session).update_course(course_id, data)
+    return CourseOut.model_validate(course)
+
+
+@router.delete(
+    "/courses/{course_id}",
+    response_model=Message,
+    dependencies=[require_permission("course:delete")],
+)
+async def delete_course(course_id: uuid.UUID, session: DbSession, _: CurrentUser) -> Message:
+    await CourseService(session).delete_course(course_id)
+    return Message(message="Course deleted")
+
+
+# ── User management ───────────────────────────────────────────────────────────
+@router.get(
+    "/users",
+    response_model=Page[UserOut],
+    dependencies=[require_permission("user:read")],
+)
+async def list_users(
+    session: DbSession, _: CurrentUser, params: Annotated[PageParams, Depends()]
+) -> Page[UserOut]:
+    users, total = await AdminUserService(session).list_users(params)
+    return Page.create([UserOut.model_validate(u) for u in users], total, params)
+
+
+@router.post(
+    "/users",
+    response_model=UserOut,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[require_permission("user:create")],
+)
+async def create_user(data: AdminUserCreate, session: DbSession, _: CurrentUser) -> UserOut:
+    user = await AdminUserService(session).create_user(data)
+    return UserOut.model_validate(user)
+
+
+@router.put(
+    "/users/{user_id}",
+    response_model=UserOut,
+    dependencies=[require_permission("user:update")],
+)
+async def update_user(
+    user_id: uuid.UUID, data: AdminUserUpdate, session: DbSession, _: CurrentUser
+) -> UserOut:
+    user = await AdminUserService(session).update_user(user_id, data)
+    return UserOut.model_validate(user)
+
+
+# ── Reports ───────────────────────────────────────────────────────────────────
+@router.get(
+    "/reports",
+    response_model=ReportOut,
+    dependencies=[require_permission("report:read")],
+)
+async def reports(session: DbSession, _: CurrentUser) -> ReportOut:
+    return await ReportService(session).tenant_report()
+
+
+# ── Tenant + module licensing (super admin / tenant:manage) ────────────────────
+@router.post(
+    "/tenants",
+    response_model=TenantOut,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[require_permission("tenant:manage")],
+)
+async def create_tenant(data: TenantCreate, _: CurrentUser) -> TenantOut:
+    tenant = await TenantAdminService().create_tenant(data)
+    return TenantOut.model_validate(tenant, from_attributes=True)
+
+
+@router.get(
+    "/tenants/{tenant_id}/modules",
+    response_model=list[TenantModuleOut],
+    dependencies=[require_permission("tenant:manage")],
+)
+async def list_tenant_modules(tenant_id: uuid.UUID, _: CurrentUser) -> list[TenantModuleOut]:
+    return await TenantAdminService().list_modules(tenant_id)
+
+
+@router.put(
+    "/tenants/{tenant_id}/modules",
+    response_model=Message,
+    dependencies=[require_permission("tenant:manage")],
+)
+async def toggle_tenant_module(tenant_id: uuid.UUID, data: ModuleToggle, _: CurrentUser) -> Message:
+    await TenantAdminService().set_module(tenant_id, data.code, enabled=data.enabled)
+    state = "enabled" if data.enabled else "disabled"
+    return Message(message=f"Module {data.code.value} {state} for tenant")
