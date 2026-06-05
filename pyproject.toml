@@ -21,10 +21,6 @@ dependencies = [
     "structlog>=24.4.0",
 ]
 
-[project.optional-dependencies]
-storage = ["boto3>=1.35.0"]
-jobs = ["dramatiq[redis]>=1.17.0"]
-
 [dependency-groups]
 dev = [
     "pytest>=8.3.0",

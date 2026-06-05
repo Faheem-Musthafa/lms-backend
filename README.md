@@ -69,7 +69,7 @@ docs/            # ADR, OpenAPI export, API examples
 
 ```bash
 cp .env.example .env          # then set JWT_SECRET_KEY: openssl rand -hex 32
-docker compose up -d --build  # db, redis, minio, migrate, seed, api
+docker compose up -d --build  # db, redis, migrate, seed, api
 # API:   http://localhost:8000
 # Docs:  http://localhost:8000/docs   (ReDoc at /redoc)
 ```

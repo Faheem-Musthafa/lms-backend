@@ -33,12 +33,14 @@ class LicensingService:
     async def enabled_codes(self, tenant_id: uuid.UUID) -> set[str]:
         """Set of module codes currently enabled for the tenant (cached)."""
         redis = get_redis()
-        cached = await redis.get(self._key(tenant_id))
-        if cached is not None:
-            return set(json.loads(cached))
+        if redis is not None:
+            cached = await redis.get(self._key(tenant_id))
+            if cached is not None:
+                return set(json.loads(cached))
 
         codes = await self._compute_enabled(tenant_id)
-        await redis.set(self._key(tenant_id), json.dumps(sorted(codes)), ex=_CACHE_TTL)
+        if redis is not None:
+            await redis.set(self._key(tenant_id), json.dumps(sorted(codes)), ex=_CACHE_TTL)
         return codes
 
     async def _compute_enabled(self, tenant_id: uuid.UUID) -> set[str]:
@@ -76,7 +78,9 @@ class LicensingService:
         return code_str in await self.enabled_codes(tenant_id)
 
     async def invalidate(self, tenant_id: uuid.UUID) -> None:
-        await get_redis().delete(self._key(tenant_id))
+        redis = get_redis()
+        if redis is not None:
+            await redis.delete(self._key(tenant_id))
 
     # ── admin operations ─────────────────────────────────────────────────
     async def set_module(

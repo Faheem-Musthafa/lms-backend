@@ -13,8 +13,7 @@ WORKDIR /app
 
 # install deps first (layer cache)
 COPY pyproject.toml uv.lock* ./
-RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-install-project --no-dev || uv sync --no-dev
+RUN uv sync --frozen --no-install-project --no-dev || uv sync --no-dev
 
 COPY . .
 
@@ -34,8 +33,6 @@ USER app
 EXPOSE 8000
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-    CMD python -c "import os,urllib.request,sys; p=os.getenv('PORT','8000'); sys.exit(0 if urllib.request.urlopen(f'http://localhost:{p}/health').status==200 else 1)"
+    CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').status==200 else 1)"
 
-# Listen on $PORT (Cloud Run sets it to 8080; falls back to 8000 locally).
-# Tune workers via WEB_CONCURRENCY (keep ~2 per vCPU on Cloud Run).
-CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --workers ${WEB_CONCURRENCY:-2}"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]

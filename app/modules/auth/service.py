@@ -44,6 +44,30 @@ from app.shared.exceptions import (
 )
 
 _RESET_PREFIX = "pwreset:"
+_reset_store: dict[str, tuple[str, float]] = {}
+
+
+def _store_reset(token: str, value: str, ttl: int) -> None:
+    import time
+
+    _reset_store[token] = (value, time.time() + ttl)
+
+
+def _get_reset(token: str) -> str | None:
+    import time
+
+    entry = _reset_store.get(token)
+    if entry is None:
+        return None
+    value, expires = entry
+    if time.time() > expires:
+        del _reset_store[token]
+        return None
+    return value
+
+
+def _delete_reset(token: str) -> None:
+    _reset_store.pop(token, None)
 
 
 class AuthService:
@@ -171,16 +195,20 @@ class AuthService:
         if user is None:
             return None
         token = secrets.token_urlsafe(32)
-        await get_redis().set(
-            f"{_RESET_PREFIX}{token}",
-            f"{tenant_id}:{user.id}",
-            ex=settings.password_reset_ttl_seconds,
-        )
+        value = f"{tenant_id}:{user.id}"
+        redis = get_redis()
+        if redis is not None:
+            await redis.set(f"{_RESET_PREFIX}{token}", value, ex=settings.password_reset_ttl_seconds)
+        else:
+            _store_reset(token, value, settings.password_reset_ttl_seconds)
         return token
 
     async def reset_password(self, token: str, new_password: str) -> None:
         redis = get_redis()
-        raw = await redis.get(f"{_RESET_PREFIX}{token}")
+        if redis is not None:
+            raw = await redis.get(f"{_RESET_PREFIX}{token}")
+        else:
+            raw = _get_reset(token)
         if not raw:
             raise ValidationError("Invalid or expired reset token")
         tenant_part, _, user_part = raw.partition(":")
@@ -193,4 +221,7 @@ class AuthService:
         user.hashed_password = hash_password(new_password)
         await self.session.flush()
         await self.sessions.revoke_all_for_user(user.id)
-        await redis.delete(f"{_RESET_PREFIX}{token}")
+        if redis is not None:
+            await redis.delete(f"{_RESET_PREFIX}{token}")
+        else:
+            _delete_reset(token)

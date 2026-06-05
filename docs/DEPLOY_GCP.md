@@ -1,211 +1,360 @@
-# Deploy to GCP — Cloud Run + Cloud SQL + Memorystore
+# Deploy to GCP — Cloud Run + Cloud SQL (POC, Web Console)
 
-Topology: **Cloud Run** (API service + migrate/seed Jobs) → **Cloud SQL**
-(Postgres, via the built-in Cloud SQL connector unix socket) + **Memorystore**
-(Redis, via a Serverless VPC Access connector). Secrets in **Secret Manager**,
-image in **Artifact Registry**.
+Step-by-step through the GCP web console. No CLI needed except one build step
+in Cloud Shell (the terminal icon in the console top bar).
 
-```
-            ┌─────────── Secret Manager (DATABASE_URL, JWT_SECRET_KEY)
- Internet → Cloud Run (lms-api) ─ unix socket /cloudsql/CONN ─→ Cloud SQL (Postgres)
-                    └─ VPC connector ─ private IP ─→ Memorystore (Redis)
- Cloud Run Jobs: lms-migrate (alembic upgrade head), lms-seed (python -m scripts.seed)
-```
-
-> The app needs **both** Postgres (RLS-enforced tenancy) and Redis (licensing
-> cache, rate limiting, reset tokens — `/health/ready` pings both).
+Cloud Run connects to Cloud SQL via **public IP + SSL**. No VPC needed.
+Redis is optional (disabled by default now).
 
 ---
 
-## 0. Variables (edit, then paste into your shell)
+## Prerequisites
+
+- GCP project with billing enabled
+- Cloud SQL instance created (PostgreSQL 15+)
+- This codebase pushed to a Git repo (GitHub, GitLab, or Cloud Source Repositories)
+
+---
+
+## Step 1 — Enable APIs
+
+1. Go to **[APIs & Services > Library](https://console.cloud.google.com/apis/library)**
+2. Search for and **Enable** each:
+   - `Cloud Run API`
+   - `Cloud SQL Admin API`
+   - `Artifact Registry API`
+   - `Cloud Build API`
+
+---
+
+## Step 2 — Create Cloud SQL database and user
+
+### 2a. Create the database
+
+1. Go to **[SQL > Databases](https://console.cloud.google.com/sql/instances)**
+2. Click your instance name
+3. In the left sidebar, click **Databases**
+4. Click **CREATE DATABASE**
+   - Name: `lms`
+   - Click **CREATE**
+
+### 2b. Create the app user
+
+1. In the left sidebar, click **Users**
+2. Click **ADD USER ACCOUNT**
+   - Username: `lms`
+   - Password: generate a strong password (save it!)
+   - Click **ADD**
+
+### 2c. Note your connection details
+
+On the instance **Overview** page, write down:
+- **Public IP address** (e.g. `34.123.45.67`)
+- **Connection name** (e.g. `my-project:us-central1:lms-pg`)
+
+You'll need these in later steps.
+
+### 2d. Allow all IPs (POC only)
+
+1. On your instance page, click **Connections** in the left sidebar
+2. Under **Authorized networks**, click **ADD NETWORK**
+   - Name: `allow-all`
+   - Network: `0.0.0.0/0`
+   - Click **DONE**
+3. Click **SAVE** at the top
+
+> This is fine for POC. For production, restrict to specific IP ranges.
+
+---
+
+## Step 3 — Create Artifact Registry repository
+
+1. Go to **[Artifact Registry > Repositories](https://console.cloud.google.com/artifacts)**
+2. Click **CREATE REPOSITORY**
+   - Name: `lms`
+   - Format: **Docker**
+   - Region: match your Cloud SQL region (e.g. `us-central1`)
+   - Click **CREATE**
+
+---
+
+## Step 4 — Build and push container image
+
+This is the one step that needs a terminal. Open **Cloud Shell** (the `>_` icon
+in the top-right of the GCP console).
+
+### 4a. Open Cloud Shell and clone your code
 
 ```bash
-export PROJECT_ID=my-lms-project
-export REGION=us-central1
-export AR_REPO=lms
-export IMAGE="$REGION-docker.pkg.dev/$PROJECT_ID/$AR_REPO/lms-backend:v1"
-
-export SQL_INSTANCE=lms-pg
-export DB_NAME=lms
-export DB_USER=lms
-
-export REDIS_INSTANCE=lms-redis
-export VPC_CONNECTOR=lms-conn
-
-export SERVICE=lms-api
-export RUNTIME_SA="lms-run@$PROJECT_ID.iam.gserviceaccount.com"
+# Clone your repo (adjust URL)
+git clone https://github.com/YOUR_USER/lms-backend.git
+cd lms-backend
 ```
 
-## 1. Project + APIs
+> If your code is already in Cloud Source Repositories, clone from there instead.
+
+### 4b. Set variables
 
 ```bash
-gcloud config set project "$PROJECT_ID"
-gcloud services enable \
-  run.googleapis.com sqladmin.googleapis.com artifactregistry.googleapis.com \
-  cloudbuild.googleapis.com secretmanager.googleapis.com redis.googleapis.com \
-  vpcaccess.googleapis.com compute.googleapis.com
+export PROJECT_ID="your-project-id"          # find in console top bar
+export REGION="us-central1"                  # match your Cloud SQL region
 ```
 
-## 2. Build + push image (Artifact Registry + Cloud Build)
+### 4c. Build and push
 
 ```bash
-gcloud artifacts repositories create "$AR_REPO" \
-  --repository-format=docker --location="$REGION"
-
-# builds with the repo Dockerfile (respects .gcloudignore)
-gcloud builds submit --tag "$IMAGE"
+gcloud builds submit \
+  --tag "$REGION-docker.pkg.dev/$PROJECT_ID/lms/lms-backend:v1" \
+  --project="$PROJECT_ID"
 ```
 
-## 3. Cloud SQL (Postgres)
+Wait for it to finish. You should see `BUILD SUCCESS`.
+
+### 4d. Verify the image
+
+1. Go to **[Artifact Registry > Repositories > lms](https://console.cloud.google.com/artifacts)**
+2. Click on `lms-backend`
+3. You should see `v1` listed
+
+---
+
+## Step 5 — Deploy Cloud Run service
+
+### 5a. Create the service
+
+1. Go to **[Cloud Run > Services](https://console.cloud.google.com/run)**
+2. Click **CREATE SERVICE**
+3. Fill in:
+   - **Service name**: `lms-api`
+   - **Region**: same as Cloud SQL (e.g. `us-central1`)
+   - **Authentication**: select **Allow unauthenticated invocations** (for POC)
+   - Under **Container image**, click **SELECT** → navigate to your Artifact Registry
+     repo → select `lms-backend:v1`
+
+### 5b. Set the container port
+
+- Under **Container port**, set to `8000`
+
+### 5c. Add Cloud SQL connection
+
+1. Scroll down to the **Connections** tab
+2. Under **Cloud SQL connections**, click **ADD CONNECTION**
+3. Select your Cloud SQL instance from the dropdown
+4. Click **DONE**
+
+### 5d. Add environment variables
+
+Click the **Variables & Secrets** tab, then add these:
+
+| Variable name | Value |
+|---|---|
+| `DATABASE_URL` | `postgresql+asyncpg://lms:YOUR_PASSWORD@YOUR_SQL_IP:5432/lms` |
+| `DATABASE_SYNC_URL` | `postgresql+psycopg://lms:YOUR_PASSWORD@YOUR_SQL_IP:5432/lms` |
+| `ENVIRONMENT` | `production` |
+| `DEBUG` | `false` |
+| `LOG_LEVEL` | `INFO` |
+| `JWT_SECRET_KEY` | *(generate: `openssl rand -hex 32` in Cloud Shell)* |
+| `CORS_ORIGINS` | `*` *(for POC — replace with your frontend URL later)* |
+| `ENABLE_ROW_LEVEL_SECURITY` | `true` |
+
+> Replace `YOUR_PASSWORD` with the `lms` user password from Step 2b.
+> Replace `YOUR_SQL_IP` with the public IP from Step 2c.
+> No `REDIS_URL` — the app works fine without it.
+
+### 5e. Adjust resources (optional)
+
+Under **Capacity**:
+- **Memory**: `512 MiB` (enough for POC)
+- **CPU**: `1`
+- **Request timeout**: `300` seconds
+- **Max instances**: `3` (keeps costs low)
+
+### 5f. Deploy
+
+Click **CREATE** (or **DEPLOY**). Wait for the green checkmark.
+
+---
+
+## Step 6 — Run database migrations
+
+### 6a. Create a Cloud Run Job
+
+1. Go to **[Cloud Run > Jobs](https://console.cloud.google.com/run/jobs)**
+2. Click **CREATE JOB**
+3. Fill in:
+   - **Job name**: `lms-migrate`
+   - **Region**: same region
+   - **Container image**: same `lms-backend:v1` from Artifact Registry
+
+### 6b. Configure the job container
+
+Under **Container**:
+- **Command**: `alembic`
+- **Args**: `upgrade`, `head`
+
+### 6c. Add Cloud SQL connection
+
+Same as Step 5c — add your Cloud SQL instance.
+
+### 6d. Add environment variables
+
+Same as Step 5d, but only these two:
+
+| Variable name | Value |
+|---|---|
+| `DATABASE_URL` | `postgresql+asyncpg://lms:YOUR_PASSWORD@YOUR_SQL_IP:5432/lms` |
+| `DATABASE_SYNC_URL` | `postgresql+psycopg://lms:YOUR_PASSWORD@YOUR_SQL_IP:5432/lms` |
+
+### 6e. Set job properties
+
+- **Task timeout**: `300` seconds
+- **Max retries**: `0` (fail fast — check logs if it fails)
+
+Click **CREATE**.
+
+### 6f. Execute the migration
+
+1. Click the three dots menu (⋮) on the right side of your job
+2. Click **Execute now**
+3. Wait for the execution to show **Succeeded**
+4. Click into the execution → **Logs** tab to see migration output
+
+---
+
+## Step 7 — Seed demo data
+
+### 7a. Create another Cloud Run Job
+
+1. Go to **[Cloud Run > Jobs](https://console.cloud.google.com/run/jobs)**
+2. Click **CREATE JOB**
+3. Fill in:
+   - **Job name**: `lms-seed`
+   - **Region**: same region
+   - **Container image**: same `lms-backend:v1`
+
+### 7b. Configure the job container
+
+Under **Container**:
+- **Command**: `python`
+- **Args**: `-m`, `scripts.seed`
+
+### 7c. Add Cloud SQL connection + env vars
+
+Same Cloud SQL connection. Environment variables:
+
+| Variable name | Value |
+|---|---|
+| `DATABASE_URL` | `postgresql+asyncpg://lms:YOUR_PASSWORD@YOUR_SQL_IP:5432/lms` |
+| `DATABASE_SYNC_URL` | `postgresql+psycopg://lms:YOUR_PASSWORD@YOUR_SQL_IP:5432/lms` |
+| `JWT_SECRET_KEY` | *(same value as your service)* |
+
+### 7d. Create and execute
+
+Click **CREATE**, then **Execute now**. Wait for **Succeeded**.
+
+Check logs to see: `Seeded X tenants, Y users, Z courses...`
+
+---
+
+## Step 8 — Verify deployment
+
+1. Go to **[Cloud Run > Services](https://console.cloud.google.com/run)**
+2. Click your `lms-api` service
+3. Copy the **Service URL** (top of the page, e.g. `https://lms-api-xxxxx.a.run.app`)
+
+### Test in your browser
+
+Open these URLs:
+- `https://YOUR-URL/health` → should show `{"status":"ok"}`
+- `https://YOUR-URL/health/ready` → should show `{"status":"ready"}`
+- `https://YOUR-URL/docs` → Swagger UI with all endpoints
+
+### Test login (from Cloud Shell or terminal)
 
 ```bash
-gcloud sql instances create "$SQL_INSTANCE" \
-  --database-version=POSTGRES_16 --region="$REGION" \
-  --tier=db-custom-1-3840 --storage-type=SSD --storage-size=10GB \
-  --availability-type=zonal           # use --availability-type=regional for prod HA
-
-gcloud sql databases create "$DB_NAME" --instance="$SQL_INSTANCE"
-
-# DB password without URL-special chars (avoids encoding in the URL)
-export DB_PASS="$(openssl rand -base64 24 | tr -d '/+=')"
-gcloud sql users create "$DB_USER" --instance="$SQL_INSTANCE" --password="$DB_PASS"
-
-export CONN_NAME="$(gcloud sql instances describe "$SQL_INSTANCE" --format='value(connectionName)')"
-echo "$CONN_NAME"                       # → PROJECT:REGION:INSTANCE
+curl -X POST "https://YOUR-URL/api/v1/auth/login" \
+  -H "Content-Type: application/json" \
+  -H "X-Tenant-ID: full-lms" \
+  -d '{"email":"admin@full-lms.com","password":"Learn123!"}'
 ```
 
-**Grant the app user schema rights (one-time).** On Postgres 15+ a non-superuser
-can't create objects in `public` by default — and the app user must *own* the
-tables so `FORCE ROW LEVEL SECURITY` governs it.
+Should return `access_token` and `refresh_token`.
 
-```bash
-gcloud sql users set-password postgres --instance="$SQL_INSTANCE" --prompt-for-password
-gcloud sql connect "$SQL_INSTANCE" --user=postgres --database="$DB_NAME"
-```
-```sql
--- in the psql prompt:
-GRANT ALL ON SCHEMA public TO lms;
-ALTER SCHEMA public OWNER TO lms;   -- lms owns objects → FORCE RLS applies to it
-\q
-```
+---
 
-## 4. Memorystore (Redis) + VPC connector
+## Step 9 — Set up Cloud Build trigger (optional, auto-deploy on push)
 
-```bash
-gcloud redis instances create "$REDIS_INSTANCE" \
-  --region="$REGION" --tier=basic --size=1 --redis-version=redis_7_0
+This makes every `git push` to `main` automatically build and deploy.
 
-export REDIS_HOST="$(gcloud redis instances describe "$REDIS_INSTANCE" \
-  --region="$REGION" --format='value(host)')"
-echo "$REDIS_HOST"
+1. Go to **[Cloud Build > Triggers](https://console.cloud.google.com/cloud-build/triggers)**
+2. Click **CREATE TRIGGER**
+   - **Name**: `lms-deploy`
+   - **Event**: Push to a branch
+   - **Source**: Connect your GitHub/GitLab repo
+   - **Branch**: `main`
+   - **Build configuration**: Cloud Build configuration file
+   - **Cloud Build configuration file location**: `cloudbuild.yaml`
+3. Click **CREATE**
 
-# Serverless VPC connector so Cloud Run reaches Memorystore's private IP.
-# /28 range must not overlap anything in the 'default' network.
-gcloud compute networks vpc-access connectors create "$VPC_CONNECTOR" \
-  --region="$REGION" --network=default --range=10.8.0.0/28
-```
+### Create `cloudbuild.yaml` in your repo root
 
-## 5. Secrets
-
-```bash
-# Full async DB URL (unix socket). config derives the sync/alembic URL from it.
-printf 'postgresql+asyncpg://%s:%s@/%s?host=/cloudsql/%s' \
-  "$DB_USER" "$DB_PASS" "$DB_NAME" "$CONN_NAME" \
-  | gcloud secrets create lms-database-url --data-file=-
-
-openssl rand -hex 32 | gcloud secrets create lms-jwt-secret --data-file=-
+```yaml
+steps:
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '-t', '${_REGION}-docker.pkg.dev/${PROJECT_ID}/lms/lms-backend:${SHORT_SHA}', '.']
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', '${_REGION}-docker.pkg.dev/${PROJECT_ID}/lms/lms-backend:${SHORT_SHA}']
+  - name: 'gcr.io/cloud-builders/gcloud'
+    args:
+      - 'run'
+      - 'deploy'
+      - 'lms-api'
+      - '--image=${_REGION}-docker.pkg.dev/${PROJECT_ID}/lms/lms-backend:${SHORT_SHA}'
+      - '--region=${_REGION}'
+      - '--project=${PROJECT_ID}'
+substitutions:
+  _REGION: us-central1
 ```
 
-## 6. Runtime service account + IAM
+Now every push to `main` builds and deploys automatically.
 
-```bash
-gcloud iam service-accounts create lms-run --display-name="LMS Cloud Run runtime"
+---
 
-gcloud projects add-iam-policy-binding "$PROJECT_ID" \
-  --member="serviceAccount:$RUNTIME_SA" --role="roles/cloudsql.client"
+## Redeploying manually (new version)
 
-for S in lms-database-url lms-jwt-secret; do
-  gcloud secrets add-iam-policy-binding "$S" \
-    --member="serviceAccount:$RUNTIME_SA" --role="roles/secretmanager.secretAccessor"
-done
-```
+1. Open **Cloud Shell**, `cd` into your code
+2. Build new tag:
+   ```bash
+   gcloud builds submit --tag "REGION-docker.pkg.dev/PROJECT_ID/lms/lms-backend:v2"
+   ```
+3. Go to **Cloud Run > Services > lms-api**
+4. Click **EDIT & DEPLOY NEW REVISION**
+5. Select the new image tag `v2`
+6. Click **DEPLOY**
 
-## 7. Migrate (Cloud Run Job)
+> If schema changed, execute `lms-migrate` job first (Step 6f).
 
-Migrations need Postgres only (no Redis, no JWT).
+---
 
-```bash
-gcloud run jobs create lms-migrate \
-  --image="$IMAGE" --region="$REGION" \
-  --service-account="$RUNTIME_SA" \
-  --set-cloudsql-instances="$CONN_NAME" \
-  --set-secrets=DATABASE_URL=lms-database-url:latest \
-  --set-env-vars=ENVIRONMENT=production \
-  --command=alembic --args=upgrade,head \
-  --max-retries=1 --task-timeout=600
+## Troubleshooting
 
-gcloud run jobs execute lms-migrate --region="$REGION" --wait
-```
+| Problem | Where to check | Fix |
+|---|---|---|
+| Service shows red error | Cloud Run > Services > click service > **Logs** tab | Check error message |
+| `connection refused` | Cloud SQL > instance > **Connections** | Add `0.0.0.0/0` to authorized networks |
+| `/health/ready` returns 503 | Cloud Run > service > **Logs** | DB connection failing — check `DATABASE_URL` |
+| `module_not_enabled` on all routes | Cloud Run > Jobs | Re-run `lms-migrate` and `lms-seed` jobs |
+| CORS errors from frontend | Cloud Run > service > **Variables** | Update `CORS_ORIGINS` to your frontend URL, redeploy |
+| Migration fails | Cloud Run > Jobs > `lms-migrate` > **Logs** | Check SQL errors in the log output |
+| Image not found | Artifact Registry > repos | Re-run the `gcloud builds submit` step |
 
-## 8. Seed (Cloud Run Job, optional, idempotent)
+---
 
-Seed touches Postgres **and** Redis → needs the VPC connector + `REDIS_URL`.
+## What's disabled without Redis
 
-```bash
-gcloud run jobs create lms-seed \
-  --image="$IMAGE" --region="$REGION" \
-  --service-account="$RUNTIME_SA" \
-  --set-cloudsql-instances="$CONN_NAME" \
-  --vpc-connector="$VPC_CONNECTOR" --vpc-egress=private-ranges-only \
-  --set-secrets=DATABASE_URL=lms-database-url:latest \
-  --set-env-vars=ENVIRONMENT=production,REDIS_URL=redis://$REDIS_HOST:6379/0 \
-  --command=python --args=-m,scripts.seed \
-  --max-retries=0 --task-timeout=600
+- **Rate limiting** — all requests pass through unchecked
+- **Module licensing cache** — DB queried every request (fine for POC)
+- **Tenant slug cache** — DB queried every request (fine for POC)
+- **Password reset tokens** — stored in-memory (lost on restart, single-instance only)
 
-gcloud run jobs execute lms-seed --region="$REGION" --wait
-```
-
-## 9. Deploy the API (Cloud Run service)
-
-```bash
-gcloud run deploy "$SERVICE" \
-  --image="$IMAGE" --region="$REGION" --platform=managed \
-  --service-account="$RUNTIME_SA" \
-  --add-cloudsql-instances="$CONN_NAME" \
-  --vpc-connector="$VPC_CONNECTOR" --vpc-egress=private-ranges-only \
-  --set-secrets=DATABASE_URL=lms-database-url:latest,JWT_SECRET_KEY=lms-jwt-secret:latest \
-  --set-env-vars=ENVIRONMENT=production,WEB_CONCURRENCY=1,DB_POOL_SIZE=5,DB_MAX_OVERFLOW=5,REDIS_URL=redis://$REDIS_HOST:6379/0,CORS_ORIGINS=https://app.example.com \
-  --cpu=1 --memory=512Mi --concurrency=80 \
-  --min-instances=1 --max-instances=10 \
-  --allow-unauthenticated
-```
-
-`--allow-unauthenticated`: the MFEs call this publicly; auth is the app's JWT
-layer. Keep `min-instances=1` to avoid cold-start latency on the auth path.
-
-**Connection-budget rule:** `DB_POOL_SIZE × WEB_CONCURRENCY × max-instances`
-must stay under Cloud SQL `max_connections`. Here 5 × 1 × 10 = 50. If you raise
-`max-instances` or `WEB_CONCURRENCY`, raise the Cloud SQL tier or front it with
-PgBouncer.
-
-## 10. Verify
-
-```bash
-export URL="$(gcloud run services describe "$SERVICE" --region="$REGION" --format='value(status.url)')"
-curl -s "$URL/health"            # {"status":"ok"}
-curl -s "$URL/health/ready"      # {"status":"ready"}  (DB + Redis reachable)
-
-curl -s -X POST "$URL/api/v1/auth/login" \
-  -H 'Content-Type: application/json' -H 'X-Tenant-ID: full-lms' \
-  -d '{"email":"student@full-lms.com","password":"Learn123!"}'
-```
-
-## 11. Day-2
-
-- **Redeploy:** `gcloud builds submit --tag "$IMAGE" && gcloud run deploy "$SERVICE" --image="$IMAGE" ...`. Run `lms-migrate` *before* shifting traffic when a release adds migrations.
-- **CI/CD:** add a Cloud Build trigger on `main` that builds, pushes, executes `lms-migrate`, then `gcloud run deploy`.
-- **Custom domain:** `gcloud run domain-mappings create --service "$SERVICE" --domain api.example.com`.
-- **Startup probe** (optional): point Cloud Run's startup probe at `/health/ready` via a service YAML so traffic waits for DB/Redis.
-- **Harden:** restrict `CORS_ORIGINS` to real MFE origins; for stricter DB isolation use Cloud SQL **private IP** (reuse the VPC connector) instead of the public-IP socket; rotate `lms-jwt-secret` (deploy picks up `:latest`).
-- **Cost trim:** Memorystore Basic 1GB is the floor for managed Redis. Alternatives: a single small Redis on Compute Engine, or a managed Redis (e.g. Upstash) over TLS — set `REDIS_URL` accordingly and drop the VPC connector if reachable publicly.
-```
+For production, add Memorystore or a managed Redis and set `REDIS_URL` env var.

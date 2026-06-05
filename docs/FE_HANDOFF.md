@@ -192,7 +192,7 @@ Branch on `code`, surface `request_id` in bug reports. `details` carries field e
 
 ```bash
 cp .env.example .env          # set JWT_SECRET_KEY: openssl rand -hex 32
-docker compose up -d --build  # db, redis, minio, migrate, seed, api → :8000
+docker compose up -d --build  # db, redis, migrate, seed, api → :8000
 ```
 
 Seeded tenants (send `X-Tenant-ID: <slug>`):
@@ -217,5 +217,4 @@ End-to-end curl flows: [`docs/API_EXAMPLES.md`](API_EXAMPLES.md). Design rationa
 3. **Global error handling** — map the error `code` table to toasts/redirects; carry `request_id`.
 4. **Per-MFE wiring** — Courses → Learning → Assignments → Dashboard → Admin, generating types from `/openapi.json`.
 
-**Open items to confirm with us:** production base URL, deployed MFE origins for CORS,
-file-upload flow for assignment `file_url` / lesson assets (S3/MinIO presigned vs direct).
+**Open items to confirm with us:** production base URL, deployed MFE origins for CORS.

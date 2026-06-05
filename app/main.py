@@ -76,7 +76,9 @@ def create_app() -> FastAPI:
 
         async with session_factory() as session:
             await session.execute(text("SELECT 1"))
-        await get_redis().ping()
+        redis = get_redis()
+        if redis is not None:
+            await redis.ping()
         return {"status": "ready"}
 
     return app

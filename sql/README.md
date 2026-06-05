@@ -38,7 +38,7 @@ Or in TablePlus: open each file in a SQL tab and Run (⌘↵), in order.
   SET app.tenant_id  = '<tenant-uuid>';
   ```
 - **Users/roles/permissions can't be seeded in pure SQL** (passwords are
-  argon2-hashed). Run `python -m scripts.seed` (or the `lms-seed` Cloud Run Job).
+  argon2-hashed). Run `python -m scripts.seed`.
 - If you create the schema with these files, tell Alembic the DB is current so
   future migrations apply cleanly:
   ```bash

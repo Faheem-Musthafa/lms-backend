@@ -48,7 +48,7 @@ def _parse_uuid(value: str) -> uuid.UUID | None:
 
 
 async def resolve_tenant_id(identifier: str) -> uuid.UUID | None:
-    """Resolve a tenant from a UUID or slug. Slug lookups are Redis-cached.
+    """Resolve a tenant from a UUID or slug. Slug lookups are Redis-cached when available.
 
     Runs with RLS bypass because the ``tenants`` table is platform-level.
     """
@@ -57,13 +57,15 @@ async def resolve_tenant_id(identifier: str) -> uuid.UUID | None:
         return as_uuid
 
     redis = get_redis()
-    cached = await redis.get(f"{_SLUG_CACHE}{identifier}")
-    if cached:
-        return uuid.UUID(cached)
+    if redis is not None:
+        cached = await redis.get(f"{_SLUG_CACHE}{identifier}")
+        if cached:
+            return uuid.UUID(cached)
 
     async with tenant_session(bypass_rls=True) as session:
         tenant = await TenantService(session).get_by_slug(identifier)
         if tenant is None or not tenant.is_active:
             return None
-        await redis.set(f"{_SLUG_CACHE}{identifier}", str(tenant.id), ex=_SLUG_TTL)
+        if redis is not None:
+            await redis.set(f"{_SLUG_CACHE}{identifier}", str(tenant.id), ex=_SLUG_TTL)
         return tenant.id

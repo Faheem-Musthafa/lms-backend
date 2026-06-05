@@ -32,6 +32,10 @@ class RateLimiter:
         if not settings.rate_limit_enabled:
             return
 
+        redis = get_redis()
+        if redis is None:
+            return
+
         rc = ctx.get_context()
         identity = (
             str(rc.user_id) if rc and rc.user_id else (rc.ip_address if rc else None)

@@ -30,8 +30,8 @@ class Settings(BaseSettings):
     db_max_overflow: int = 20
     db_echo: bool = False
 
-    # ── Redis ─────────────────────────────────────────────────────────────
-    redis_url: str = "redis://localhost:6379/0"
+    # ── Redis (optional — disabled when unset) ────────────────────────────
+    redis_url: str | None = None
 
     # ── Security / JWT ────────────────────────────────────────────────────
     jwt_secret_key: str = "change-me-please-32-bytes-minimum-secret"
@@ -48,13 +48,6 @@ class Settings(BaseSettings):
     # ── Tenancy ───────────────────────────────────────────────────────────
     tenant_header: str = "X-Tenant-ID"
     enable_row_level_security: bool = True
-
-    # ── Storage (optional) ────────────────────────────────────────────────
-    s3_endpoint_url: str | None = None
-    s3_access_key: str | None = None
-    s3_secret_key: str | None = None
-    s3_bucket: str = "lms-assets"
-    s3_region: str = "us-east-1"
 
     # ── CORS ──────────────────────────────────────────────────────────────
     cors_origins: str = "http://localhost:3000,http://localhost:5173"
