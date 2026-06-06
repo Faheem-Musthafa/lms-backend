@@ -50,7 +50,8 @@ class Settings(BaseSettings):
     enable_row_level_security: bool = True
 
     # ── CORS ──────────────────────────────────────────────────────────────
-    cors_origins: str = "http://localhost:3000,http://localhost:5173,https://lms-mf-es-shell.vercel.app"
+    cors_origins: str = "http://localhost:3000,http://localhost:5173"
+    cors_origin_regex: str | None = r"https://.*\.vercel\.app$"
 
     @computed_field  # type: ignore[prop-decorator]
     @property
