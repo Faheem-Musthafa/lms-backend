@@ -42,6 +42,7 @@ from app.shared.schemas import PageParams
 
 from app.modules.learning.models import Lesson, LessonType
 from app.modules.learning.repository import LessonRepository
+from app.modules.courses.service import CourseService
 
 class AdminLessonService:
     def __init__(self, session: AsyncSession) -> None:
