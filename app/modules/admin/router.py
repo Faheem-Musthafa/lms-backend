@@ -23,7 +23,7 @@ from app.modules.admin.service import (
 )
 from app.modules.auth.dependencies import CurrentUser, DbSession, require_permission
 from app.modules.auth.schemas import UserOut
-from app.modules.courses.schemas import CourseCreate, CourseOut, CourseUpdate
+from app.modules.courses.schemas import CourseCreate, CourseFilter, CourseOut, CourseUpdate
 from app.modules.courses.service import CourseService
 from app.shared.schemas import Message, Page, PageParams
 
@@ -31,6 +31,18 @@ router = APIRouter(prefix="/admin", tags=["Admin"])
 
 
 # ── Course management ─────────────────────────────────────────────────────────
+@router.get(
+    "/courses",
+    response_model=Page[CourseOut],
+    dependencies=[require_permission("course:read")],
+)
+async def list_admin_courses(
+    session: DbSession, _: CurrentUser, filters: Annotated[CourseFilter, Depends()]
+) -> Page[CourseOut]:
+    items, total = await CourseService(session).list_courses(filters, published_only=False)
+    return Page.create([CourseOut.model_validate(c) for c in items], total, filters)
+
+
 @router.post(
     "/courses",
     response_model=CourseOut,
