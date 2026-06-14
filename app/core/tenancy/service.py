@@ -39,6 +39,10 @@ class TenantService:
         await self.session.flush()
         return tenant
 
+    async def list_all(self) -> list[Tenant]:
+        stmt = select(Tenant).where(Tenant.deleted_at.is_(None))
+        return list((await self.session.execute(stmt)).scalars().all())
+
 
 def _parse_uuid(value: str) -> uuid.UUID | None:
     try:

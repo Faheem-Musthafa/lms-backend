@@ -145,6 +145,16 @@ async def create_tenant(data: TenantCreate, _: CurrentUser) -> TenantOut:
 
 
 @router.get(
+    "/tenants",
+    response_model=list[TenantOut],
+    dependencies=[require_permission("tenant:manage")],
+)
+async def list_tenants(_: CurrentUser) -> list[TenantOut]:
+    tenants = await TenantAdminService().list_tenants()
+    return [TenantOut.model_validate(t, from_attributes=True) for t in tenants]
+
+
+@router.get(
     "/tenants/{tenant_id}/modules",
     response_model=list[TenantModuleOut],
     dependencies=[require_permission("tenant:manage")],

@@ -121,6 +121,19 @@ class TenantAdminService:
             codes = set(data.modules) | {ModuleCode.AUTH}
             for code in codes:
                 await lic.set_module(tenant.id, code, enabled=True)
+            
+            # Create initial super admin user in this tenant
+            user = User(
+                tenant_id=tenant.id,
+                email=data.admin_email.lower(),
+                hashed_password=hash_password(data.admin_password),
+                full_name="Tenant Admin",
+                is_active=True,
+                is_superuser=True,
+            )
+            session.add(user)
+            await session.flush()
+            
             return tenant
 
     async def list_modules(self, tenant_id: uuid.UUID) -> list[TenantModuleOut]:
@@ -135,6 +148,10 @@ class TenantAdminService:
                 )
                 for m in modules
             ]
+
+    async def list_tenants(self) -> list[Tenant]:
+        async with tenant_session(bypass_rls=True) as session:
+            return await TenantService(session).list_all()
 
     async def set_module(self, tenant_id: uuid.UUID, code: ModuleCode, *, enabled: bool) -> None:
         if code == ModuleCode.AUTH and not enabled:

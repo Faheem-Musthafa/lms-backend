@@ -27,6 +27,8 @@ class TenantCreate(BaseModel):
     name: str = Field(min_length=2, max_length=200)
     slug: str = Field(min_length=2, max_length=80)
     modules: list[ModuleCode] = Field(default_factory=list)
+    admin_email: EmailStr
+    admin_password: str = Field(min_length=8, max_length=128)
 
 
 class TenantOut(BaseModel):
