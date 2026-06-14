@@ -43,6 +43,16 @@ async def list_admin_courses(
     return Page.create([CourseOut.model_validate(c) for c in items], total, filters)
 
 
+@router.get(
+    "/courses/{course_id}",
+    response_model=CourseOut,
+    dependencies=[require_permission("course:read")],
+)
+async def get_admin_course(course_id: uuid.UUID, session: DbSession, _: CurrentUser) -> CourseOut:
+    course = await CourseService(session).get_course(course_id, published_only=False)
+    return CourseOut.model_validate(course)
+
+
 @router.post(
     "/courses",
     response_model=CourseOut,
