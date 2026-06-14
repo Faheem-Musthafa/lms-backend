@@ -25,10 +25,19 @@ it return `403 { "code": "module_not_enabled" }`. Enabling a module is a data ch
 (no deploy). FE implication: **drive MFE/nav visibility off the licensed-module list**,
 and still handle `module_not_enabled` defensively.
 
-- **Base URL (local):** `http://localhost:8000`
+- **Base URL (current dev deployment):** `https://pct-dual-comparisons-spotlight.trycloudflare.com`
+  This is a Cloudflare Quick Tunnel. The subdomain changes on every `cloudflared`
+  restart — backend team runs `scripts/update_tunnel.sh <new-url>` to swap it.
+  For a stable URL, pin a named tunnel (see `docs/TUNNEL.md`) before production.
+- **Base URL (local):** `http://localhost:8000` (uvicorn) · `http://lms.local` (nginx reverse proxy)
 - **API prefix:** `/api/v1`
 - **Interactive docs:** `/docs` (Swagger) · `/redoc` · machine-readable `/openapi.json`
 - **Health:** `GET /health` (liveness) · `GET /health/ready` (DB + Redis check)
+
+**Env var per MFE** (set in each `apps/<mfe>/.env.local`):
+```
+NEXT_PUBLIC_API_URL=https://pct-dual-comparisons-spotlight.trycloudflare.com
+```
 
 > Generate a typed client from `/openapi.json` (`openapi-typescript` / `orval`) rather
 > than hand-writing types — the contract below is authoritative but the spec is canonical.
@@ -103,7 +112,7 @@ All non-auth routes require a licensed module (per §1).
 ### Courses — `/api/v1/courses` (`COURSES`)
 | Method | Path | Permission | Returns |
 |---|---|---|---|
-| GET | `/courses` | auth | `Page<CourseOut>` — query: `search, level, status, is_free, category_id, page, size, sort` |
+| GET | `/courses` **or** `/courses/` | auth | `Page<CourseOut>` — query: `search, level, status, is_free, category_id, page, size, sort` |
 | GET | `/courses/{course_id}` | auth | `CourseDetailOut` |
 | POST | `/courses/{course_id}/enroll` | `course:enroll` | `EnrollmentOut` — `201`; `409` if already enrolled |
 
@@ -128,7 +137,7 @@ Quiz answers shape: `answers: { "<question_id>": ["<answer_id>", ...] }`.
 ### Dashboard — `/api/v1/dashboard` (`DASHBOARD`)
 | Method | Path | Permission | Returns |
 |---|---|---|---|
-| GET | `/dashboard` | auth | `DashboardOut` — `{ enrolled_courses, completed_lessons, pending_assignments, submissions, recent_activity[] }` |
+| GET | `/dashboard` **or** `/dashboard/` | auth | `DashboardOut` — `{ enrolled_courses, completed_lessons, pending_assignments, submissions, recent_activity[] }` |
 
 ### Admin — `/api/v1/admin` (`ADMIN`)
 | Method | Path | Permission |
@@ -176,8 +185,14 @@ Branch on `code`, surface `request_id` in bug reports. `details` carries field e
 
 ## 7. Cross-cutting FE notes
 
-- **CORS** (local): `http://localhost:3000`, `http://localhost:5173`. `allow_credentials: true`.
-  Send us your deployed MFE origins so we add them.
+- **CORS** (current config):
+  - Exact allow list: `http://localhost:3000`, `http://localhost:5173`, `https://pct-dual-comparisons-spotlight.trycloudflare.com`
+  - Regex: `https://([a-z0-9-]+\.)?(lms-mf-es-shell\.vercel\.app|trycloudflare\.com)$` —
+    matches the naked shell domain, any tenant subdomain (`abc-academy.lms-mf-es-shell.vercel.app`),
+    and any Cloudflare quick tunnel.
+  - `allow_credentials: true`; custom headers `X-Tenant-ID` and `Authorization` are whitelisted.
+  - Adding a new origin: either append to `CORS_ORIGINS` in `.env` (restart backend), or widen
+    `CORS_ORIGIN_REGEX` to cover your production domain.
 - **Rate limits** (Redis-backed): default **100/min**, auth endpoints **10/min**. Handle `429`.
 - **IDs** are UUIDs. **Money** (`price`, `points`) is serialized as a **string decimal**
   (e.g. `"10.00"`) — parse, don't treat as float.
@@ -192,7 +207,16 @@ Branch on `code`, surface `request_id` in bug reports. `details` carries field e
 
 ```bash
 cp .env.example .env          # set JWT_SECRET_KEY: openssl rand -hex 32
-docker compose up -d --build  # db, redis, migrate, seed, api → :8000
+# Prereqs: PostgreSQL running locally, uv installed
+make migrate                  # apply Alembic migrations
+make seed                     # load demo tenants/users/roles
+make dev                      # uvicorn on http://localhost:8000 (reload)
+```
+
+For remote access from MFEs deployed on Vercel, backend team runs:
+```bash
+cloudflared tunnel --url http://localhost:8000
+./scripts/update_tunnel.sh https://<new-subdomain>.trycloudflare.com
 ```
 
 Seeded tenants (send `X-Tenant-ID: <slug>`):
@@ -217,4 +241,49 @@ End-to-end curl flows: [`docs/API_EXAMPLES.md`](API_EXAMPLES.md). Design rationa
 3. **Global error handling** — map the error `code` table to toasts/redirects; carry `request_id`.
 4. **Per-MFE wiring** — Courses → Learning → Assignments → Dashboard → Admin, generating types from `/openapi.json`.
 
-**Open items to confirm with us:** production base URL, deployed MFE origins for CORS.
+**Open items to confirm with us:** production base URL (once you move off the quick tunnel — see `docs/TUNNEL.md`).
+
+---
+
+## 10. Quick-start smoke test (copy-paste)
+
+Set the tunnel URL once:
+```bash
+export LMS_API=https://pct-dual-comparisons-spotlight.trycloudflare.com
+export TENANT=abc-academy
+```
+
+**Health:**
+```bash
+curl $LMS_API/health
+# {"status":"ok"}
+```
+
+**Login (returns access + refresh token):**
+```bash
+curl -X POST $LMS_API/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -H "X-Tenant-ID: $TENANT" \
+  -d '{"email":"admin@abc-academy.com","password":"Admin123!"}'
+```
+
+**Authenticated request:**
+```bash
+TOKEN=<paste access_token>
+curl $LMS_API/api/v1/auth/me -H "Authorization: Bearer $TOKEN" -H "X-Tenant-ID: $TENANT"
+curl $LMS_API/api/v1/courses/ -H "Authorization: Bearer $TOKEN" -H "X-Tenant-ID: $TENANT"
+```
+
+**Licensing smoke test (expect 403 vs 200):**
+```bash
+# abc-academy doesn't license ASSIGNMENTS:
+curl -o /dev/null -w "%{http_code}\n" $LMS_API/api/v1/assignments \
+  -H "Authorization: Bearer $TOKEN" -H "X-Tenant-ID: $TENANT"    # → 403
+
+# full-lms licenses everything:
+FULL_TOKEN=$(curl -s -X POST $LMS_API/api/v1/auth/login \
+  -H "Content-Type: application/json" -H "X-Tenant-ID: full-lms" \
+  -d '{"email":"student@full-lms.com","password":"Learn123!"}' | jq -r .access_token)
+curl -o /dev/null -w "%{http_code}\n" $LMS_API/api/v1/assignments \
+  -H "Authorization: Bearer $FULL_TOKEN" -H "X-Tenant-ID: full-lms"   # → 200
+```

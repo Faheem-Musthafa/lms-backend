@@ -84,16 +84,22 @@ class AuthService:
         if await self.users.get_by_email(email):
             raise ConflictError("Email already registered")
 
-        user = await self.users.create(
+        # Resolve default role BEFORE creating the user so we can attach it
+        # on the in-memory instance without triggering a lazy-load of the
+        # (async-unfriendly) roles collection.
+        student = await self.roles.get_by_code(RoleCode.STUDENT.value)
+        default_roles: list = [student] if student else []
+
+        # Build the User in-memory, attach roles, THEN add+flush in one shot.
+        user = User(
+            tenant_id=tenant_id,
             email=email,
             hashed_password=hash_password(data.password),
             full_name=data.full_name,
             is_active=True,
+            roles=default_roles,
         )
-        # default role = student
-        student = await self.roles.get_by_code(RoleCode.STUDENT.value)
-        if student:
-            user.roles.append(student)
+        self.session.add(user)
         await self.session.flush()
 
         await event_bus.publish(
