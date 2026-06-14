@@ -63,6 +63,8 @@ class AdminLessonService:
             order_index=data.order_index,
             duration_seconds=0, # for text lessons
         )
+        lesson.video = None
+        lesson.document = None
         await self.session.flush()
         return lesson
 
@@ -92,6 +94,7 @@ class AdminAssignmentService:
             due_at=due_at,
             is_published=data.is_published,
         )
+        assignment.quiz = None
         await self.session.flush()
         return assignment
 
@@ -116,6 +119,8 @@ class AdminUserService:
         )
         if data.role_codes:
             user.roles = await self.roles.get_by_codes(data.role_codes)
+        else:
+            user.roles = []
         await self.session.flush()
         await event_bus.publish(
             UserRegisteredEvent(tenant_id=tenant_id, user_id=user.id, email=user.email)
