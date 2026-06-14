@@ -51,7 +51,6 @@ ROLE_MATRIX: dict[RoleCode, set[str]] = {
         "course:read",
         "course:create",
         "course:update",
-        "category:manage",
         "lesson:read",
         "lesson:create",
         "lesson:update",
