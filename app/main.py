@@ -16,7 +16,26 @@ from app.core.database.session import engine
 from app.core.middleware import RequestContextMiddleware
 from app.shared.exceptions import register_exception_handlers
 
+_DEFAULT_JWT_SECRET = "change-me-please-32-bytes-minimum-secret"
+
+
+def _check_production_safety() -> None:
+    if not settings.is_production:
+        return
+    if settings.jwt_secret_key == _DEFAULT_JWT_SECRET:
+        raise RuntimeError(
+            "Refusing to start: JWT_SECRET_KEY is the default value in production. "
+            "Generate one with `openssl rand -hex 32`."
+        )
+    if settings.debug:
+        raise RuntimeError(
+            "Refusing to start: DEBUG=true is not allowed in production."
+        )
+
+
 logging.basicConfig(level=settings.log_level)
+
+_check_production_safety()
 
 OPENAPI_TAGS = [
     {"name": "Authentication", "description": "Login, registration, tokens, sessions."},

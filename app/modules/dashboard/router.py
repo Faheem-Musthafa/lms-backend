@@ -18,6 +18,7 @@ def get_dashboard_service(session: DbSession) -> DashboardService:
 
 
 @router.get("", response_model=DashboardOut)
+@router.get("/", response_model=DashboardOut, include_in_schema=False)
 async def get_dashboard(
     user: CurrentUser,
     svc: Annotated[DashboardService, Depends(get_dashboard_service)],

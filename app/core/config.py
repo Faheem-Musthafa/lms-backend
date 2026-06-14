@@ -51,7 +51,7 @@ class Settings(BaseSettings):
 
     # ── CORS ──────────────────────────────────────────────────────────────
     cors_origins: str = "http://localhost:3000,http://localhost:5173"
-    cors_origin_regex: str | None = r"https://.*\.vercel\.app$"
+    cors_origin_regex: str | None = r"https://lms-mf-es-shell(-[a-z0-9]+)?\.vercel\.app$"
 
     @computed_field  # type: ignore[prop-decorator]
     @property

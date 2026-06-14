@@ -28,6 +28,7 @@ CourseSvc = Annotated[CourseService, Depends(get_course_service)]
 
 
 @router.get("", response_model=Page[CourseOut])
+@router.get("/", response_model=Page[CourseOut], include_in_schema=False)
 async def list_courses(
     filters: Annotated[CourseFilter, Depends()],
     svc: CourseSvc,

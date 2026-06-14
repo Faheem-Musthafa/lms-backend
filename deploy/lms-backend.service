@@ -1,0 +1,32 @@
+[Unit]
+Description=LMS Backend API (FastAPI + uvicorn)
+After=network.target postgresql.service
+Requires=postgresql.service
+
+[Service]
+Type=simple
+User=faheem
+Group=faheem
+WorkingDirectory=/home/faheem/lincole/lms-backend
+EnvironmentFile=/home/faheem/lincole/lms-backend/.env
+ExecStart=/home/faheem/lincole/lms-backend/.venv/bin/uvicorn \
+    app.main:app \
+    --host 127.0.0.1 \
+    --port 8000 \
+    --workers 4 \
+    --access-log
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=lms-backend
+
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/faheem/lincole/lms-backend
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
