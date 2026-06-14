@@ -8,6 +8,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, status
 
 from app.modules.admin.schemas import (
+    AdminAssignmentCreate,
     AdminLessonCreate,
     AdminUserCreate,
     AdminUserUpdate,
@@ -26,6 +27,7 @@ from app.modules.auth.dependencies import CurrentUser, DbSession, require_permis
 from app.modules.auth.schemas import UserOut
 from app.modules.courses.schemas import CourseCreate, CourseFilter, CourseOut, CourseUpdate
 from app.modules.courses.service import CourseService
+from app.modules.assignments.schemas import AssignmentOut
 from app.modules.learning.schemas import LessonOut
 from app.shared.schemas import Message, Page, PageParams
 
@@ -111,6 +113,32 @@ async def create_admin_course_lesson(
     from app.modules.admin.service import AdminLessonService
     lesson = await AdminLessonService(session).create_lesson(course_id, data)
     return LessonOut.model_validate(lesson)
+
+
+@router.get(
+    "/courses/{course_id}/assignments",
+    response_model=list[AssignmentOut],
+    dependencies=[require_permission("course:read")],
+)
+async def get_admin_course_assignments(course_id: uuid.UUID, session: DbSession, _: CurrentUser) -> list[AssignmentOut]:
+    from app.modules.assignments.repository import AssignmentRepository
+    from app.modules.assignments.schemas import AssignmentFilter
+    assignments = await AssignmentRepository(session).list(AssignmentFilter(course_id=course_id))
+    return [AssignmentOut.model_validate(a) for a in assignments[0]]
+
+
+@router.post(
+    "/courses/{course_id}/assignments",
+    response_model=AssignmentOut,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[require_permission("course:update")],
+)
+async def create_admin_course_assignment(
+    course_id: uuid.UUID, data: AdminAssignmentCreate, session: DbSession, _: CurrentUser
+) -> AssignmentOut:
+    from app.modules.admin.service import AdminAssignmentService
+    assignment = await AdminAssignmentService(session).create_assignment(course_id, data)
+    return AssignmentOut.model_validate(assignment)
 
 
 # ── User management ───────────────────────────────────────────────────────────

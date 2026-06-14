@@ -8,6 +8,7 @@ run on a dedicated RLS-bypass session via ``tenant_session``.
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,6 +23,7 @@ from app.core.security import hash_password
 from app.core.tenancy.models import Tenant
 from app.core.tenancy.service import TenantService
 from app.modules.admin.schemas import (
+    AdminAssignmentCreate,
     AdminLessonCreate,
     AdminUserCreate,
     AdminUserUpdate,
@@ -62,6 +64,35 @@ class AdminLessonService:
         )
         await self.session.flush()
         return lesson
+
+from app.modules.assignments.models import Assignment, AssignmentType
+from app.modules.assignments.repository import AssignmentRepository
+
+class AdminAssignmentService:
+    def __init__(self, session: AsyncSession) -> None:
+        self.session = session
+        self.assignments = AssignmentRepository(session)
+        self.courses = CourseService(session)
+
+    async def create_assignment(self, course_id: uuid.UUID, data: AdminAssignmentCreate) -> Assignment:
+        # Verify course exists
+        await self.courses.get_course(course_id, published_only=False)
+        
+        # Convert string to datetime if due_at is provided
+        due_at = datetime.fromisoformat(data.due_at.replace("Z", "+00:00")) if data.due_at else None
+
+        assignment = await self.assignments.create(
+            course_id=course_id,
+            title=data.title,
+            description=data.description,
+            type=AssignmentType.assignment,
+            max_points=data.max_points,
+            pass_points=data.pass_points,
+            due_at=due_at,
+            is_published=data.is_published,
+        )
+        await self.session.flush()
+        return assignment
 
 class AdminUserService:
     def __init__(self, session: AsyncSession) -> None:

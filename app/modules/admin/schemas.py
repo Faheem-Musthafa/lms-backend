@@ -16,6 +16,14 @@ class AdminLessonCreate(BaseModel):
     is_preview: bool = False
     order_index: int = 0
 
+class AdminAssignmentCreate(BaseModel):
+    title: str = Field(min_length=2, max_length=200)
+    description: str | None = None
+    max_points: float = Field(default=100)
+    pass_points: float = Field(default=50)
+    due_at: str | None = None
+    is_published: bool = False
+
 
 class AdminUserCreate(BaseModel):
     email: EmailStr
