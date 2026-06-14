@@ -118,8 +118,12 @@ def register_exception_handlers(app: FastAPI) -> None:
         )
 
     @app.exception_handler(Exception)
-    async def _unhandled(_: Request, exc: Exception) -> JSONResponse:
+    async def _unhandled(request: Request, exc: Exception) -> JSONResponse:
+        import traceback
+        tb = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+        origin = request.headers.get("origin", "*")
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            content=_envelope("internal_error", "Internal server error"),
+            content=_envelope("internal_error", "Internal server error", details=tb),
+            headers={"Access-Control-Allow-Origin": origin, "Access-Control-Allow-Credentials": "true"},
         )
