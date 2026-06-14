@@ -8,6 +8,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, status
 
 from app.modules.admin.schemas import (
+    AdminLessonCreate,
     AdminUserCreate,
     AdminUserUpdate,
     ModuleToggle,
@@ -25,6 +26,7 @@ from app.modules.auth.dependencies import CurrentUser, DbSession, require_permis
 from app.modules.auth.schemas import UserOut
 from app.modules.courses.schemas import CourseCreate, CourseFilter, CourseOut, CourseUpdate
 from app.modules.courses.service import CourseService
+from app.modules.learning.schemas import LessonOut
 from app.shared.schemas import Message, Page, PageParams
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
@@ -84,6 +86,31 @@ async def update_course(
 async def delete_course(course_id: uuid.UUID, session: DbSession, _: CurrentUser) -> Message:
     await CourseService(session).delete_course(course_id)
     return Message(message="Course deleted")
+
+
+@router.get(
+    "/courses/{course_id}/lessons",
+    response_model=list[LessonOut],
+    dependencies=[require_permission("course:read")],
+)
+async def get_admin_course_lessons(course_id: uuid.UUID, session: DbSession, _: CurrentUser) -> list[LessonOut]:
+    from app.modules.learning.service import LearningService
+    lessons = await LearningService(session).list_lessons(course_id)
+    return [LessonOut.model_validate(lo) for lo in lessons]
+
+
+@router.post(
+    "/courses/{course_id}/lessons",
+    response_model=LessonOut,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[require_permission("course:update")],
+)
+async def create_admin_course_lesson(
+    course_id: uuid.UUID, data: AdminLessonCreate, session: DbSession, _: CurrentUser
+) -> LessonOut:
+    from app.modules.admin.service import AdminLessonService
+    lesson = await AdminLessonService(session).create_lesson(course_id, data)
+    return LessonOut.model_validate(lesson)
 
 
 # ── User management ───────────────────────────────────────────────────────────

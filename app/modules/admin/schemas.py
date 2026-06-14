@@ -7,6 +7,14 @@ import uuid
 from pydantic import BaseModel, EmailStr, Field
 
 from app.core.licensing.constants import ModuleCode
+from app.modules.learning.models import LessonType
+
+class AdminLessonCreate(BaseModel):
+    title: str = Field(min_length=2, max_length=200)
+    content_type: LessonType = Field(default=LessonType.text)
+    content: str | None = None
+    is_preview: bool = False
+    order_index: int = 0
 
 
 class AdminUserCreate(BaseModel):

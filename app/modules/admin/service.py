@@ -22,6 +22,7 @@ from app.core.security import hash_password
 from app.core.tenancy.models import Tenant
 from app.core.tenancy.service import TenantService
 from app.modules.admin.schemas import (
+    AdminLessonCreate,
     AdminUserCreate,
     AdminUserUpdate,
     ReportOut,
@@ -36,6 +37,31 @@ from app.modules.courses.models import Course, CourseEnrollment
 from app.shared.exceptions import ConflictError, NotFoundError, ValidationError
 from app.shared.schemas import PageParams
 
+
+from app.modules.learning.models import Lesson, LessonType
+from app.modules.learning.repository import LessonRepository
+
+class AdminLessonService:
+    def __init__(self, session: AsyncSession) -> None:
+        self.session = session
+        self.lessons = LessonRepository(session)
+        self.courses = CourseService(session)
+
+    async def create_lesson(self, course_id: uuid.UUID, data: AdminLessonCreate) -> Lesson:
+        # Verify course exists
+        await self.courses.get_course(course_id, published_only=False)
+        
+        lesson = await self.lessons.create(
+            course_id=course_id,
+            title=data.title,
+            content_type=data.content_type,
+            content=data.content,
+            is_preview=data.is_preview,
+            order_index=data.order_index,
+            duration_seconds=0, # for text lessons
+        )
+        await self.session.flush()
+        return lesson
 
 class AdminUserService:
     def __init__(self, session: AsyncSession) -> None:
