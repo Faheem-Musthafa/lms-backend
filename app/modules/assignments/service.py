@@ -191,3 +191,7 @@ class AssignmentService:
             .all()
         )
         return rows, total
+
+    async def list_submissions_for_assignment(self, assignment_id: uuid.UUID) -> list[Submission]:
+        stmt = self.submissions._select().where(Submission.assignment_id == assignment_id).order_by(Submission.submitted_at.desc())
+        return list((await self.session.execute(stmt)).scalars().all())

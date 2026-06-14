@@ -76,6 +76,18 @@ async def grade(
 
 
 @router.get(
+    "/{assignment_id}/submissions",
+    response_model=list[SubmissionOut],
+    dependencies=[require_permission("grade:write")],
+)
+async def list_submissions(
+    assignment_id: uuid.UUID, svc: AsgSvc, _: CurrentUser
+) -> list[SubmissionOut]:
+    submissions = await svc.list_submissions_for_assignment(assignment_id)
+    return [SubmissionOut.model_validate(s) for s in submissions]
+
+
+@router.get(
     "/grades/me",
     response_model=Page[GradeOut],
     dependencies=[require_permission("grade:read")],
