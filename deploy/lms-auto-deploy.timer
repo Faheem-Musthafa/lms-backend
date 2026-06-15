@@ -1,0 +1,12 @@
+[Unit]
+Description=LMS Backend auto-deploy timer
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=5min
+RandomizedDelaySec=30
+Unit=lms-auto-deploy.service
+Persistent=true
+
+[Install]
+WantedBy=timers.target

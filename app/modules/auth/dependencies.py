@@ -44,6 +44,7 @@ async def get_current_user(
     # enrich request context for downstream layers (audit, RLS bypass, guards)
     rc = ctx.get_context()
     if rc is not None:
+        rc.tenant_id = rc.tenant_id or payload.tid
         rc.roles = frozenset(user.role_codes)
         rc.permissions = frozenset(user.permission_codes)
         rc.user_id = user.id

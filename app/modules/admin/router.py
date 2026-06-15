@@ -25,6 +25,8 @@ from app.modules.admin.service import (
 )
 from app.modules.auth.dependencies import CurrentUser, DbSession, require_permission
 from app.modules.auth.schemas import UserOut
+from app.core.tenancy.service import resolve_tenant_id
+from app.shared.exceptions import NotFoundError
 from app.modules.courses.schemas import CourseCreate, CourseFilter, CourseOut, CourseUpdate
 from app.modules.courses.service import CourseService
 from app.modules.assignments.schemas import AssignmentOut
@@ -214,8 +216,11 @@ async def list_tenants(_: CurrentUser) -> list[TenantOut]:
     response_model=list[TenantModuleOut],
     dependencies=[require_permission("tenant:manage")],
 )
-async def list_tenant_modules(tenant_id: uuid.UUID, _: CurrentUser) -> list[TenantModuleOut]:
-    return await TenantAdminService().list_modules(tenant_id)
+async def list_tenant_modules(tenant_id: str, _: CurrentUser) -> list[TenantModuleOut]:
+    resolved = await resolve_tenant_id(tenant_id)
+    if resolved is None:
+        raise NotFoundError(f"Tenant {tenant_id} not found")
+    return await TenantAdminService().list_modules(resolved)
 
 
 @router.put(
@@ -223,7 +228,10 @@ async def list_tenant_modules(tenant_id: uuid.UUID, _: CurrentUser) -> list[Tena
     response_model=Message,
     dependencies=[require_permission("tenant:manage")],
 )
-async def toggle_tenant_module(tenant_id: uuid.UUID, data: ModuleToggle, _: CurrentUser) -> Message:
-    await TenantAdminService().set_module(tenant_id, data.code, enabled=data.enabled)
+async def toggle_tenant_module(tenant_id: str, data: ModuleToggle, _: CurrentUser) -> Message:
+    resolved = await resolve_tenant_id(tenant_id)
+    if resolved is None:
+        raise NotFoundError(f"Tenant {tenant_id} not found")
+    await TenantAdminService().set_module(resolved, data.code, enabled=data.enabled)
     state = "enabled" if data.enabled else "disabled"
     return Message(message=f"Module {data.code.value} {state} for tenant")

@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cd /home/faheem/lincole/lms-backend && python -c \"from app.modules.admin.router import router; print\\('OK'\\)\" 2>&1)"
+    ]
+  }
+}
