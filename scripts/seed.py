@@ -85,7 +85,7 @@ ROLE_NAMES = {
 
 # tenant slug -> (name, licensed modules)
 TENANTS = {
-    "abc-academy": ("ABC Academy", [ModuleCode.AUTH, ModuleCode.COURSES, ModuleCode.LEARNING]),
+    "abc-academy": ("ABC Academy", [ModuleCode.AUTH, ModuleCode.COURSES, ModuleCode.LEARNING, ModuleCode.ADMIN]),
     "full-lms": ("Full LMS Inc", list(ModuleCode)),
 }
 
